@@ -1,0 +1,19 @@
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.DS_Store
+
+# 런타임·로컬 데이터
+activity_log.json
+code_history.json
+
+# 업로드/결과물 (폴더 구조만 유지)
+uploads/*
+!uploads/.gitkeep
+outputs/*
+!outputs/.gitkeep
+
+# API 키가 들어갈 수 있는 로컬 설정 (예시는 model_config.example.json)
+model_config.json

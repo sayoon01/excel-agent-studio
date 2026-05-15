@@ -1,0 +1,18 @@
+{
+  "active_provider": "",
+  "active_model": "",
+  "openai": {
+    "key": "",
+    "model": "gpt-4o"
+  },
+  "ollama": {
+    "host": "http://localhost:11434",
+    "models": [],
+    "last_model": "llama3.1"
+  },
+  "google": {
+    "key": "",
+    "model": "gemini-1.5-pro"
+  },
+  "servers": []
+}
