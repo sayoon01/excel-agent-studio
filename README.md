@@ -2,6 +2,9 @@
 
 엑셀·CSV 파일을 자연어로 분석·처리하는 Streamlit 기반 AI 데이터 플랫폼.
 LLM이 직접 수치를 판단하지 않고, 구조화된 Python 도구가 실제 계산을 수행한 뒤 LLM이 결과만 설명하는 **2-Phase 아키텍처**로 환각(hallucination)을 방지합니다.
+<img width="1434" height="1997" alt="스크린샷 2026-05-15 181514" src="https://github.com/user-attachments/assets/64ef75dc-f265-4d35-af15-1e8ef4651baa" />
+<img width="1003" height="1176" alt="스크린샷 2026-05-15 182612" src="https://github.com/user-attachments/assets/d48aa43a-f0df-4887-8fff-cc4c6b3b0cf7" />
+<img width="1364" height="1418" alt="스크린샷 2026-05-15 182131" src="https://github.com/user-attachments/assets/27ffbe4e-b717-428a-93d1-d8dcb79c59eb" />
 
 ---
 
@@ -59,6 +62,7 @@ streamlit run app.py
 ### Dashboard (`app.py`)
 
 플랫폼 전체 현황을 한눈에 보여주는 메인 화면.
+<img width="1394" height="940" alt="스크린샷 2026-05-15 183450" src="https://github.com/user-attachments/assets/f1b624db-0348-4c79-870c-79c95c4e2233" />
 
 - **메트릭 카드 4개**: 업로드 파일 수 / 처리 건수 / 활성 모델 / 토큰 사용량
 - **활성 모델 표시**: 우상단 배지 — 미설정 시 경고 배너 표시
@@ -71,6 +75,7 @@ streamlit run app.py
 ### File Manager (`pages/1_File_Manager.py`)
 
 엑셀·CSV 파일 업로드 및 상세 미리보기.
+<img width="1354" height="868" alt="스크린샷 2026-05-15 183655" src="https://github.com/user-attachments/assets/24f9e0fc-69b1-42d7-aaf8-35dce2222c72" />
 
 - **파일 업로드**: 드래그&드롭 (xlsx / xls / csv), `uploads/` 저장
 - **파일 목록**: 이름·날짜·크기 표시, 검색 필터, 체크박스 일괄 삭제
@@ -86,6 +91,7 @@ streamlit run app.py
 ### AI Prompt (`pages/2_AI_Prompt.py`)
 
 핵심 기능. 자연어 질문 → Python 도구 실행 → AI 결과 설명.
+<img width="1385" height="1195" alt="스크린샷 2026-05-15 183559" src="https://github.com/user-attachments/assets/5a6d301c-e38b-4e07-af6b-5441f7068320" />
 
 #### 아키텍처: 2-Phase LLM + Python Tools
 
