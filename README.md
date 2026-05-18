@@ -16,25 +16,8 @@
 
 모든 AI 요청은 아래 파이프라인을 따릅니다.
 
-```mermaid
-flowchart TD
-  U([사용자 작업\n자연어 입력]) --> TC
+![Uploading 스크린샷 2026-05-18 142850.png…]()
 
-  TC["**Task Classification**\n질문·파일·컨텍스트를 분석해\n작업 유형(task type) 결정"]
-  TC --> MS
-
-  MS["**Model Selector**\n작업 유형 → 최적 모델 자동 매핑\n사용자 개입 없음"]
-  MS --> TE
-
-  TE["**Tool Execution**\nPlanner → Python Tools → Explainer\n선택된 모델로 LLM 호출"]
-  TE --> R([응답])
-
-  subgraph examples [매핑 예시 — Ollama 로컬]
-    E1["차트 만들어줘"] --> M1["qwen3:14b"]
-    E2["Python 코드 생성해줘"] --> M2["qwen2.5-coder:14b"]
-    E3["긴 보고서 만들어줘"] --> M3["gemma3:27b"]
-  end
-```
 
 ### 작업 유형 → 모델 매핑 (예시)
 
