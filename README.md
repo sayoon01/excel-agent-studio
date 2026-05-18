@@ -41,6 +41,7 @@
 ### 전체 파이프라인 (현재 구현)
 
 플랫폼 전체(설정 → 파일 → AI 처리 → 결과)와 AI Prompt **질문 1회** 처리 흐름을 한 diagram에 정리했습니다.
+<img width="1060" height="591" alt="image" src="https://github.com/user-attachments/assets/7b8c9336-035f-4179-b2e9-c8f194c21117" />
 
 ```mermaid
 flowchart TB
