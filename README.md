@@ -14,11 +14,7 @@
 > **사용자가 직접 모델을 고르게 하면 안 됩니다.**  
 > Model Manager는 모델 풀(pool)을 등록·관리하는 곳이지, 매 요청마다 모델을 고르는 UI가 아닙니다.
 
-모든 AI 요청은 아래 파이프라인을 따릅니다.
-
-<img width="1058" height="652" alt="스크린샷 2026-05-18 142850" src="https://github.com/user-attachments/assets/4b1f6c8b-d7bd-4405-9cc7-1b28ad3c2156" />
-
-
+모든 AI 요청은 아래 [전체 파이프라인](#전체-파이프라인-현재-구현)을 따릅니다.
 
 ### 작업 유형 → 모델 매핑 (예시)
 
@@ -42,10 +38,88 @@
 "pandas 처리"  ─┘
 ```
 
-### 전체 파이프라인 (모델 선택 + 2-Phase Tool)
+### 전체 파이프라인 (현재 구현)
 
-<img width="1057" height="1271" alt="스크린샷 2026-05-18 143128" src="https://github.com/user-attachments/assets/bc8658a5-edcb-460f-9dae-c8b894f2504c" />
+플랫폼 전체(설정 → 파일 → AI 처리 → 결과)와 AI Prompt **질문 1회** 처리 흐름을 한 diagram에 정리했습니다.
 
+```mermaid
+flowchart TB
+    subgraph SETUP["① 사전 설정 — Model Manager"]
+        MM["pages/3_Model_Manager.py\nOllama pull · API 키"]
+        MM --> CFG[("model_config.json")]
+        CFG --> RM["role_models\nanalysis · code · precision"]
+        CFG --> TM["task_models\n(작업 유형별 override)"]
+        CFG --> OLL["ollama.models / openai / google"]
+    end
+
+    subgraph INGEST["② 파일 준비 — File Manager"]
+        FM["pages/1_File_Manager.py\n업로드 · 미리보기"]
+        FM --> UP[("uploads/\nxlsx · xls · csv")]
+        FM --> SMART["utils + _read_excel_smart\n병합셀 · 2행헤더 · 숫자변환"]
+        FM --> AITAB["AI 분석 탭\ncall_ai_simple → task_router"]
+    end
+
+    subgraph AI["③ AI Prompt — 질문 1회 (pages/2_AI_Prompt.py)"]
+        Q(["chat_input / 빠른 명령 / _pending"])
+
+        Q --> RP["route_for_prompt(prompt)"]
+        RP --> CLS["classify_task\nvisualization · code_generation\ndata_analysis · long_form_report · quick_qa"]
+        CLS --> RESOLVE["resolve_route\nrole_models → task_models\n→ DEFAULT → Ollama fallback\n→ CLOUD_FALLBACK"]
+        RESOLVE --> AR["st.session_state auto_route\n사이드바 자동 모델 패널"]
+
+        Q --> LOAD["load_files + _read_excel_smart"]
+        LOAD --> P1["Phase 1 — call_planner\nLLM → JSON Action Plan"]
+
+        P1 --> PLAN{"plan.steps\n있음?"}
+
+        PLAN -->|Yes| P2["Phase 2 — TOOL_REGISTRY\n11개 Tool · Python만 실행\nLLM 개입 없음"]
+        P2 --> CTX["ctx에 결과 누적\ninspect · compare · aggregate\nvisualize · export …"]
+        CTX --> P3["Phase 3 — stream_explainer\nTOOL_ROLES[첫 Tool] → role_models"]
+        P3 --> SUG["generate_suggestions_ai\n추천 카드 최대 4개"]
+        SUG --> RERUN["st.rerun()\n사이드바 모델 갱신"]
+
+        PLAN -->|No| FB["Fallback — stream_ai_fallback\ncode / code_generation 모델"]
+        FB --> GEN["LLM Python 코드 생성"]
+        GEN --> EXEC["extract_and_run_code\nexec · 차트 · outputs/"]
+        EXEC --> APR{"_pending_code\n승인 UI?"}
+    end
+
+    subgraph OUT["④ 결과 · 이력"]
+        P2 --> OUTDIR[("outputs/")]
+        EXEC --> OUTDIR
+        P2 --> LOG[("activity_log.json")]
+        OUTDIR --> RS["pages/4_Results.py\n미리보기 · 다운로드 · Chat 저장"]
+        LOG --> DASH["app.py Dashboard\n메트릭 · 최근 활동"]
+    end
+
+  SETUP -.->|resolve_route 읽기| RESOLVE
+  INGEST --> Q
+  UP --> LOAD
+```
+
+**Phase 2 Tool 목록 (11개)** — `TOOL_REGISTRY` in `2_AI_Prompt.py`
+
+| 분류 | Tool |
+|------|------|
+| 파일 탐색 | `list_files`, `preview_file` |
+| 분석·정제 | `inspect_column`, `compare_files`, `clean_table`, `aggregate`, `filter_rows`, `calculate_ratio`, `fill_missing` |
+| 출력 | `visualize`, `export` |
+
+```mermaid
+flowchart LR
+    subgraph P2DETAIL["Phase 2 — Tool Executor (결정론적)"]
+        direction TB
+        T1[list_files / preview_file]
+        T2[inspect_column / compare_files]
+        T3[aggregate / filter_rows / calculate_ratio]
+        T4[clean_table / fill_missing]
+        T5[visualize → chart_b64]
+        T6[export → outputs/]
+    end
+
+    P1D["Phase 1 Planner\nclassify_task 모델"] --> P2DETAIL
+    P2DETAIL --> P3D["Phase 3 Explainer\nTOOL_ROLES → role_models"]
+```
 
 ### 설계 원칙
 
@@ -194,9 +268,7 @@ streamlit run app.py
 
 #### 아키텍처: Task Classification → Auto Model → 2-Phase Tools
 
-요청마다 Task Classifier가 작업 유형을 판별하고, 그에 맞는 모델을 자동으로 로드합니다. 사용자는 모델명을 알 필요가 없습니다.
-<img width="1054" height="1249" alt="image" src="https://github.com/user-attachments/assets/b5d9c08c-ddbd-4f70-a4c1-8d196dcfc6be" />
-
+요청마다 Task Classifier가 작업 유형을 판별하고, 그에 맞는 모델을 자동으로 로드합니다. 사용자는 모델명을 알 필요가 없습니다. 상세 흐름은 [전체 파이프라인 (현재 구현)](#전체-파이프라인-현재-구현)을 참고하세요.
 
 #### 11개 Python Tool 함수
 
@@ -284,19 +356,18 @@ streamlit run app.py
 
 ## 데이터 흐름
 
+페이지·저장소 관점 요약입니다. 질문 처리 상세는 [전체 파이프라인 (현재 구현)](#전체-파이프라인-현재-구현)을 참고하세요.
+
 ```mermaid
 flowchart LR
-    FM["**File Manager**\n파일 업로드"] --> UP[("uploads/\n엑셀·CSV")]
-    UP --> AI["**AI Prompt**\nTask Classification\n→ Auto Model\n→ Tool 실행"]
-    AI --> OUT[("outputs/\n결과 파일")]
-    OUT --> RS["**Results**\n미리보기·다운로드"]
-
-    AI --> LOG[("activity_log.json\n처리 이력 영속화")]
-    LOG --> DB["**Dashboard**\n처리 통계·최근 활동"]
-
-    MM["**Model Manager**\n모델 풀 등록·연결"] --> CFG[("model_config.json\n모델 풀·API 키")]
-    CFG --> AI
-    CFG --> DB
+    MM["Model Manager\nrole_models 등록"] --> CFG[("model_config.json")]
+    FM["File Manager"] --> UP[("uploads/")]
+    UP --> AI["AI Prompt\nclassify_task → Tools → Explainer"]
+    CFG -.-> AI
+    AI --> OUT[("outputs/")]
+    AI --> LOG[("activity_log.json")]
+    OUT --> RS["Results"]
+    LOG --> DB["Dashboard"]
 ```
 
 ---
