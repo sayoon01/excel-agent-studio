@@ -194,28 +194,8 @@ streamlit run app.py
 #### 아키텍처: Task Classification → Auto Model → 2-Phase Tools
 
 요청마다 Task Classifier가 작업 유형을 판별하고, 그에 맞는 모델을 자동으로 로드합니다. 사용자는 모델명을 알 필요가 없습니다.
+<img width="1054" height="1249" alt="image" src="https://github.com/user-attachments/assets/b5d9c08c-ddbd-4f70-a4c1-8d196dcfc6be" />
 
-전체 흐름은 상단 [핵심 구조: 자동 모델 선택](#핵심-구조-자동-모델-선택) 절의 Mermaid 다이어그램을 참고하세요. Tool 실행 단계만 요약하면 다음과 같습니다.
-
-```mermaid
-flowchart TD
-    Q([사용자 질문]) --> TC[Task Classification]
-    TC --> M[Model Auto-Select]
-    M --> P1
-
-    P1["**Phase 1 — Planner**\n선택된 LLM이 실행 계획 JSON 생성\n{ summary, steps: [ { tool, args } ] }"]
-    P1 -->|계획 성공| P2
-
-    P2["**Phase 2 — Tool Executor**\nPython 함수가 실제 계산 수행 (pandas)\nLLM 개입 없음 · ctx에 결과 누적"]
-    P2 --> P3
-
-    P3["**Phase 3 — Explainer**\nLLM이 Python 계산 결과만 받아 한국어로 설명\n수치를 직접 추론하지 않으므로 환각 없음"]
-    P3 --> R([응답 + 후속 제안 카드])
-
-    P1 -->|계획 생성 실패| FB
-    FB["**Fallback**\ncode_generation 모델이\nPython 코드 생성 → exec() 실행"]
-    FB --> R
-```
 
 #### 9개 Python Tool 함수
 
