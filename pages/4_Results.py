@@ -9,6 +9,7 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from utils.activity_log import add_entry
+from utils.styles import apply_global_css, empty_state
 
 st.set_page_config(page_title="Results", page_icon="📝", layout="wide")
 
@@ -16,21 +17,65 @@ OUTPUT_DIR = Path("outputs")
 OUTPUT_DIR.mkdir(exist_ok=True)
 
 # ── CSS ──
-st.markdown("""
-<style>
-.res-row {
-    display: flex; align-items: center; gap: 12px;
-    padding: 9px 14px;
-    border: 1px solid #e2e8f0; border-radius: 8px;
-    margin-bottom: 5px; font-size: 13px; background: #fff;
+apply_global_css("""<style>
+/* ── 헤더 액션 버튼 (Chat 저장 / 작성) ── */
+[data-testid="stBaseButton-secondary"] {
+    height: 34px !important;
+    min-height: 34px !important;
+    padding: 0 14px !important;
+    font-size: 12px !important;
+    font-weight: 600 !important;
+    border-radius: 8px !important;
+    white-space: nowrap !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    line-height: 1 !important;
+    box-sizing: border-box !important;
 }
-.res-name { flex: 1; font-weight: 500; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.res-time { color: #94a3b8; font-size: 12px; white-space: nowrap; }
-</style>
-""", unsafe_allow_html=True)
+/* ── 미리보기 버튼 — 파란색 계열 ── */
+[data-testid="stColumn"]:has(.rpv-zone) button {
+    height: 30px !important; min-height: 30px !important; max-height: 30px !important;
+    padding: 0 !important; font-size: 15px !important; border-radius: 8px !important;
+    background: #eff6ff !important; color: #1d4ed8 !important;
+    border: 1px solid #bfdbfe !important;
+    display: flex !important; align-items: center !important;
+    justify-content: center !important; width: 100% !important;
+    box-sizing: border-box !important; transition: background 0.15s !important;
+}
+[data-testid="stColumn"]:has(.rpv-zone) button:hover {
+    background: #dbeafe !important; border-color: #93c5fd !important;
+}
+/* ── 다운로드 버튼 — 초록색 계열 ── */
+[data-testid="stDownloadButton"] > button {
+    height: 30px !important; min-height: 30px !important; max-height: 30px !important;
+    padding: 0 !important; font-size: 15px !important; border-radius: 8px !important;
+    background: #f0fdf4 !important; color: #16a34a !important;
+    border: 1px solid #bbf7d0 !important;
+    display: flex !important; align-items: center !important;
+    justify-content: center !important; width: 100% !important;
+    box-sizing: border-box !important; transition: background 0.15s !important;
+}
+[data-testid="stDownloadButton"] > button:hover {
+    background: #dcfce7 !important; border-color: #86efac !important;
+}
+/* ── 삭제 버튼 — 빨간색 계열 ── */
+[data-testid="stColumn"]:has(.rdel-zone) button {
+    height: 30px !important; min-height: 30px !important; max-height: 30px !important;
+    padding: 0 !important; font-size: 15px !important; border-radius: 8px !important;
+    background: #fff1f2 !important; color: #dc2626 !important;
+    border: 1px solid #fecaca !important;
+    display: flex !important; align-items: center !important;
+    justify-content: center !important; width: 100% !important;
+    box-sizing: border-box !important; transition: background 0.15s !important;
+}
+[data-testid="stColumn"]:has(.rdel-zone) button:hover {
+    background: #fee2e2 !important; border-color: #f87171 !important;
+}
+</style>""")
 
 # ── 헤더 ──
-hl, hb1, hb2 = st.columns([5, 0.85, 0.85])
+hl, hb1, hb2 = st.columns([4.2, 1.3, 1.0])
 hl.markdown("## Results")
 
 # ── 대화 → MD 저장 다이얼로그 ──
@@ -106,7 +151,7 @@ out_files = sorted(
 )
 
 if not out_files:
-    st.info("아직 결과 파일이 없습니다. AI Prompt에서 작업하거나 대화를 저장해보세요.")
+    st.markdown(empty_state("📄", "결과 파일이 없습니다", "AI Prompt에서 분석하거나 대화를 저장하면 여기에 표시됩니다"), unsafe_allow_html=True)
     st.stop()
 
 # 컬럼 헤더
@@ -165,6 +210,7 @@ for i, fp in enumerate(out_files):
     )
 
     is_open = (st.session_state["res_preview_idx"] == i)
+    cp.markdown('<span class="rpv-zone" style="display:none"></span>', unsafe_allow_html=True)
     if cp.button("✕" if is_open else "◉", key=f"rpv_{i}", use_container_width=True,
                  help="미리보기"):
         st.session_state["res_preview_idx"] = None if is_open else i
@@ -174,6 +220,7 @@ for i, fp in enumerate(out_files):
         cd.download_button("⬇", data=fh.read(), file_name=fp.name,
                            key=f"rdl_{i}", use_container_width=True)
 
+    cdel.markdown('<span class="rdel-zone" style="display:none"></span>', unsafe_allow_html=True)
     if cdel.button("🗑", key=f"rdel_{i}"):
         add_entry("삭제", fp.name, "deleted")
         fp.unlink()

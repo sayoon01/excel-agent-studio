@@ -8,11 +8,47 @@
   "ollama": {
     "host": "http://localhost:11434",
     "models": [],
-    "last_model": "llama3.1"
+    "last_model": "qwen3:14b"
   },
   "google": {
     "key": "",
     "model": "gemini-1.5-pro"
+  },
+  "role_models": {
+    "analysis": {
+      "provider": "ollama",
+      "model": "qwen3:14b"
+    },
+    "code": {
+      "provider": "ollama",
+      "model": "qwen2.5-coder:14b"
+    },
+    "precision": {
+      "provider": "ollama",
+      "model": "gemma3:27b"
+    }
+  },
+  "task_models": {
+    "visualization": {
+      "provider": "ollama",
+      "model": "qwen3:14b"
+    },
+    "code_generation": {
+      "provider": "ollama",
+      "model": "qwen2.5-coder:14b"
+    },
+    "long_form_report": {
+      "provider": "ollama",
+      "model": "gemma3:27b"
+    },
+    "data_analysis": {
+      "provider": "ollama",
+      "model": "qwen2.5:14b"
+    },
+    "quick_qa": {
+      "provider": "ollama",
+      "model": "gemma2"
+    }
   },
   "servers": []
 }

@@ -13,6 +13,7 @@ from utils.activity_log import (
     load_entries,
     weekly_processing_dataframe,
 )
+from utils.styles import apply_global_css, empty_state
 
 st.set_page_config(
     page_title="AI Prompt Platform",
@@ -31,30 +32,23 @@ for key, val in [("messages", []), ("tokens_used", 0)]:
         st.session_state[key] = val
 
 # ── CSS ──
-st.markdown("""
-<style>
-div[data-testid="stMetric"] {
-    background: #f8fafc;
-    border: 1px solid #e2e8f0;
-    border-radius: 10px;
-    padding: 16px 20px;
-}
-div[data-testid="stMetric"] label {
-    font-size: 13px !important;
-    color: #64748b !important;
-}
+apply_global_css("""<style>
 .activity-row {
     display: flex;
     align-items: center;
     flex-wrap: nowrap;
     gap: 10px;
     padding: 9px 12px;
+    background: #ffffff;
     border: 1px solid #e2e8f0;
-    border-radius: 8px;
+    border-radius: 10px;
     margin-bottom: 6px;
     font-size: 13px;
     min-width: 0;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+    transition: box-shadow 0.15s;
 }
+.activity-row:hover { box-shadow: 0 2px 8px rgba(0,0,0,0.08); }
 .activity-name {
     flex: 1 1 auto;
     font-weight: 500;
@@ -80,8 +74,7 @@ div[data-testid="stMetric"] label {
     font-weight: 600;
     white-space: nowrap;
 }
-</style>
-""", unsafe_allow_html=True)
+</style>""")
 
 
 # ── 모델 설정 로드 (항상 기본값 보장) ──
@@ -231,7 +224,7 @@ with panel_l:
                 unsafe_allow_html=True,
             )
     else:
-        st.info("아직 활동이 없습니다. 파일을 업로드하거나 AI Prompt를 사용해보세요.")
+        st.markdown(empty_state("📋", "아직 활동이 없습니다", "파일 업로드 또는 AI Prompt 사용 후 표시됩니다"), unsafe_allow_html=True)
 
 # ── 오른쪽: 주간 통계 차트 ──
 with panel_r:
@@ -240,7 +233,7 @@ with panel_r:
     df_chart = weekly_processing_dataframe(days=7)
 
     if df_chart["건수"].sum() == 0:
-        st.info("아직 처리 기록이 없습니다.\nAI Prompt에서 작업하면 여기에 통계가 표시됩니다.")
+        st.markdown(empty_state("📊", "처리 기록 없음", "AI Prompt에서 작업하면 통계가 표시됩니다"), unsafe_allow_html=True)
     else:
         day_order = list(df_chart["요일"])
         chart = (

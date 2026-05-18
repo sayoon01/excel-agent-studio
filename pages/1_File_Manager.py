@@ -10,8 +10,46 @@ from itertools import zip_longest
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from utils.activity_log import add_entry
+from utils.styles import apply_global_css, empty_state
 
 st.set_page_config(page_title="File Manager", page_icon="📂", layout="wide")
+apply_global_css("""<style>
+[data-testid="stDownloadButton"] > button,
+[data-testid="stColumn"]:has(.pv-zone) button,
+[data-testid="stColumn"]:has(.del-zone) button {
+    height: 28px !important; min-height: 28px !important; max-height: 28px !important;
+    padding: 0 10px !important; font-size: 11px !important; font-weight: 700 !important;
+    letter-spacing: 0.02em !important; border-radius: 6px !important;
+    display: flex !important; align-items: center !important;
+    justify-content: center !important; line-height: 1 !important;
+    box-sizing: border-box !important; width: 100% !important;
+    white-space: nowrap !important;
+    transition: background 0.15s, border-color 0.15s !important;
+}
+[data-testid="stDownloadButton"] > button {
+    background: #eff6ff !important; color: #1d4ed8 !important;
+    border: 1px solid #bfdbfe !important;
+}
+[data-testid="stDownloadButton"] > button:hover {
+    background: #dbeafe !important; border-color: #93c5fd !important;
+}
+[data-testid="stColumn"]:has(.pv-zone) button {
+    background: #f8fafc !important; color: #475569 !important;
+    border: 1px solid #e2e8f0 !important;
+}
+[data-testid="stColumn"]:has(.pv-zone) button:hover {
+    background: #f1f5f9 !important; border-color: #cbd5e1 !important;
+    color: #1e293b !important;
+}
+[data-testid="stColumn"]:has(.del-zone) button {
+    background: #fff1f2 !important; color: #dc2626 !important;
+    border: 1px solid #fecaca !important;
+}
+[data-testid="stColumn"]:has(.del-zone) button:hover {
+    background: #fee2e2 !important; border-color: #f87171 !important;
+}
+.file-divider { border: none; border-top: 1px solid #f1f5f9; margin: 2px 0; }
+</style>""")
 
 UPLOAD_DIR = Path("uploads")
 UPLOAD_DIR.mkdir(exist_ok=True)
@@ -57,13 +95,22 @@ def read_excel_smart(
         wb = load_workbook(fp, data_only=True)
         ws = wb.worksheets[sheet_idx] if sheet_idx < len(wb.worksheets) else wb.active
 
-        # 병합 셀 해제: 좌상단 값으로 채우기
+        # 헤더 영역(1~2행) 가로 병합의 보조 셀 수집 — 채우면 중복 컬럼명 발생
+        _hdr_sec: set = set()
+        for _mrg in ws.merged_cells.ranges:
+            if _mrg.min_row <= 2 and _mrg.max_col > _mrg.min_col:
+                for _r in range(_mrg.min_row, min(_mrg.max_row + 1, 3)):
+                    for _c in range(_mrg.min_col + 1, _mrg.max_col + 1):
+                        _hdr_sec.add((_r, _c))
+
+        # 병합 셀 해제: 데이터 영역은 좌상단 값으로 채우기, 헤더 가로 보조셀은 제외
         for merged in list(ws.merged_cells.ranges):
             top = ws.cell(merged.min_row, merged.min_col).value
             ws.unmerge_cells(str(merged))
             for r in range(merged.min_row, merged.max_row + 1):
                 for c in range(merged.min_col, merged.max_col + 1):
-                    ws.cell(r, c).value = top
+                    if (r, c) not in _hdr_sec:
+                        ws.cell(r, c).value = top
 
         data = [[cell.value for cell in row] for row in ws.iter_rows()]
         wb.close()
@@ -108,6 +155,11 @@ def read_excel_smart(
 
         df = pd.DataFrame(data[data_start:], columns=headers)
         df = df.dropna(how="all").reset_index(drop=True)
+
+        # 희소 텍스트 컬럼 ffill — 세로 병합 해제 후 남은 None 복원 (비목분류 등)
+        for col in df.select_dtypes(exclude="number").columns:
+            if df[col].notna().mean() < 0.5:
+                df[col] = df[col].ffill()
 
         # 쉼표 포함 숫자 문자열('51,840,000') 포함 숫자 타입 추론
         def _coerce(s: pd.Series) -> pd.Series:
@@ -584,43 +636,6 @@ def preview_dialog(fp_str: str):
 
 
 # ══════════════════════════════════════════════
-# CSS
-# ══════════════════════════════════════════════
-
-st.markdown("""
-<style>
-/* 파일 행 세로 중앙 정렬 */
-[data-testid="stHorizontalBlock"] { align-items: center; }
-
-/* 버튼 높이 통일 */
-[data-testid="stDownloadButton"] > button,
-[data-testid="stBaseButton-secondary"] {
-    height: 32px !important;
-    padding: 0 8px !important;
-    font-size: 13px !important;
-}
-
-/* 삭제 버튼 — 빨간 계열 */
-[data-testid="stColumn"]:has(.del-zone) button {
-    color: #dc2626 !important;
-    border-color: #fca5a5 !important;
-}
-[data-testid="stColumn"]:has(.del-zone) button:hover {
-    background: #fef2f2 !important;
-    border-color: #f87171 !important;
-}
-
-/* 구분선 */
-.file-divider {
-    border: none;
-    border-top: 1px solid #f1f5f9;
-    margin: 1px 0;
-}
-</style>
-""", unsafe_allow_html=True)
-
-
-# ══════════════════════════════════════════════
 # 헤더
 # ══════════════════════════════════════════════
 
@@ -667,7 +682,7 @@ files.sort(key=_sort[sort_by], reverse=(sort_by != "이름순"))
 
 if not files:
     st.markdown("<br>", unsafe_allow_html=True)
-    st.info("업로드된 파일이 없습니다. 우측 상단 **Upload** 버튼을 눌러 파일을 추가하세요.")
+    st.markdown(empty_state("📂", "파일이 없습니다", "우측 상단 Upload 버튼으로 엑셀 파일을 추가하세요"), unsafe_allow_html=True)
     st.stop()
 
 # ── 파일 수·용량 요약 ──
@@ -687,7 +702,7 @@ st.markdown(
 selected: list[Path] = []
 
 # ── 컬럼 헤더 (파일 행과 동일 비율) ──
-_COL = [0.25, 3.5, 1.8, 1.8, 0.38, 0.38, 0.3]
+_COL = [0.25, 3.5, 1.8, 1.8, 0.55, 0.55, 0.5]
 _HL  = "font-size:11px;color:#94a3b8;font-weight:600;letter-spacing:.04em"
 hc, hn, hm, ht, *_ = st.columns(_COL)
 hn.markdown(f'<span style="{_HL}">파일명</span>', unsafe_allow_html=True)
@@ -716,7 +731,7 @@ for i, fp in enumerate(files):
     # 체크 | 이름 | 크기·날짜 | 시트·행열 | 다운 | 미리보기 | 삭제
     cc, cn, cm, ct, cdl, cpv, cdel = st.columns(_COL)
 
-    chk = cc.checkbox("", key=f"chk_{i}", label_visibility="collapsed")
+    chk = cc.checkbox("선택", key=f"chk_{i}", label_visibility="collapsed")
     if chk:
         selected.append(fp)
 
@@ -737,18 +752,19 @@ for i, fp in enumerate(files):
     )
 
     cdl.download_button(
-        "⬇", data=read_file_bytes(str(fp)),
+        "저장", data=read_file_bytes(str(fp)),
         file_name=fp.name, key=f"dl_{i}",
         use_container_width=True, help="원본 파일 다운로드",
     )
 
-    if cpv.button("◉", key=f"pv_{i}", use_container_width=True, help="미리보기"):
+    cpv.markdown('<span class="pv-zone" style="display:none"></span>', unsafe_allow_html=True)
+    if cpv.button("보기", key=f"pv_{i}", use_container_width=True, help="미리보기"):
         st.session_state["preview_trigger"] = str(fp)
         st.rerun()
 
     # 삭제 버튼 — 빨간 스타일 마커
     cdel.markdown('<span class="del-zone" style="display:none"></span>', unsafe_allow_html=True)
-    if cdel.button("🗑", key=f"del_{i}", use_container_width=True):
+    if cdel.button("삭제", key=f"del_{i}", use_container_width=True):
         st.session_state["delete_trigger"] = [str(fp)]
         st.rerun()
 
