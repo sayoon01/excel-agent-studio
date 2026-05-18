@@ -44,25 +44,8 @@
 
 ### 전체 파이프라인 (모델 선택 + 2-Phase Tool)
 
-```mermaid
-flowchart TD
-  Q([사용자 질문]) --> TC["Task Classification"]
-  TC --> SEL["Model Auto-Select\n(e.g. qwen3:14b)"]
-  SEL --> P1
+<img width="1057" height="1271" alt="스크린샷 2026-05-18 143128" src="https://github.com/user-attachments/assets/bc8658a5-edcb-460f-9dae-c8b894f2504c" />
 
-  P1["**Phase 1 — Planner**\n선택된 모델이 실행 계획 JSON 생성\n{ summary, steps: [ { tool, args } ] }"]
-  P1 -->|계획 성공| P2
-
-  P2["**Phase 2 — Tool Executor**\nPython 함수가 실제 계산 (pandas)\nLLM 개입 없음"]
-  P2 --> P3
-
-  P3["**Phase 3 — Explainer**\n동일 또는 경량 모델이\nPython 결과만 받아 한국어 설명"]
-  P3 --> R([응답 + 후속 제안 카드])
-
-  P1 -->|계획 실패| FB
-  FB["**Fallback — code_generation 태스크**\nqwen2.5-coder:14b\nPython 코드 생성 → exec()"]
-  FB --> R
-```
 
 ### 설계 원칙
 
