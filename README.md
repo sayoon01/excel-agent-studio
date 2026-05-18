@@ -16,7 +16,8 @@
 
 모든 AI 요청은 아래 파이프라인을 따릅니다.
 
-![Uploading 스크린샷 2026-05-18 142850.png…]()
+<img width="1058" height="652" alt="스크린샷 2026-05-18 142850" src="https://github.com/user-attachments/assets/4b1f6c8b-d7bd-4405-9cc7-1b28ad3c2156" />
+
 
 
 ### 작업 유형 → 모델 매핑 (예시)
