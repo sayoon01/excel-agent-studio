@@ -81,13 +81,14 @@
 
 ```
 st.chat_input(prompt)
-  → call_planner()          # route_for_prompt → analysis 역할 모델
+  → route_for_prompt()      # 질문 키워드 → task type → 모델 (auto_route 설정)
+  → call_planner()          # classify_task(question) 모델로 JSON 계획 생성
   → Tool 실행 (Phase 2)     # LLM 개입 없음
-  → stream_explainer()      # TOOL_ROLES 기반 역할 → 자동 모델
-  → (실패 시) stream_ai_fallback()  # code 역할 → qwen2.5-coder:14b 등
+  → stream_explainer()      # 첫 Tool의 TOOL_ROLES → role_models 모델
+  → (실패 시) stream_ai_fallback()  # code_generation → qwen2.5-coder:14b 등
 ```
 
-사이드바 **「자동 모델」** 은 `st.session_state["auto_route"]`에 마지막으로 선택된 `RouteResult`(모델명·작업 라벨)를 읽기 전용으로 표시합니다.
+사이드바 **「자동 모델」** 은 `st.session_state["auto_route"]`를 읽기 전용으로 표시합니다. 질문 전에는 Model Manager에 등록된 **기본 풀**(`analysis` 역할)을 안내하고, 질문 처리 후에는 선택된 모델명·작업 라벨이 갱신됩니다 (`st.rerun()`).
 
 <img width="1434" height="1997" alt="스크린샷 2026-05-15 181514" src="https://github.com/user-attachments/assets/64ef75dc-f265-4d35-af15-1e8ef4651baa" />
 <img width="1003" height="1176" alt="스크린샷 2026-05-15 182612" src="https://github.com/user-attachments/assets/d48aa43a-f0df-4887-8fff-cc4c6b3b0cf7" />
@@ -197,20 +198,22 @@ streamlit run app.py
 <img width="1054" height="1249" alt="image" src="https://github.com/user-attachments/assets/b5d9c08c-ddbd-4f70-a4c1-8d196dcfc6be" />
 
 
-#### 9개 Python Tool 함수
+#### 11개 Python Tool 함수
 
 모든 Tool은 `(args: dict, ctx: dict, dfs: dict) -> dict` 시그니처를 공유.
 `ctx`에 이전 Tool 결과가 누적되어 다음 Tool이 참조 가능.
 
 | Tool | 설명 | 주요 args |
 |---|---|---|
+| `list_files` | `uploads/` 파일 목록·상태 | (없음) |
+| `preview_file` | 파일 데이터 미리보기 | `file`, `rows` (기본 20) |
 | `inspect_column` | 열 상세 분석 (셀 주소 포함) | `file`, `column` |
 | `compare_files` | 두 파일 diff (추가/제거/변경) | `file_a`, `file_b`, `key_col` |
 | `clean_table` | 소계·빈 행 제거 | `file`, `remove_subtotals` |
 | `aggregate` | 그룹별 집계 (sum/mean 등) | `file`, `group_by`, `value_col`, `func` |
 | `filter_rows` | 조건 행 필터 | `file`, `column`, `condition`, `value` |
-| `calculate_ratio` | 집행률 자동 계산 (계획/실행 컬럼 자동 탐지) | `file`, `plan_col`, `exec_col` |
-| `fill_missing` | 빈 셀 채우기 | `file`, `method` (zero/ffill/mean) |
+| `calculate_ratio` | 집행률·비율 계산 (`plan_col`/`exec_col` 미지정 시 키워드 자동 탐지) | `file`, `plan_col`, `exec_col`, `label_col` |
+| `fill_missing` | 빈 셀 채우기 | `file`, `method` (zero/ffill/bfill/mean), `columns` |
 | `visualize` | 막대/선/파이 차트 생성 | `file`, `chart_type`, `x`, `y` |
 | `export` | 결과를 Excel/CSV로 저장 | `source_step`, `filename` |
 
@@ -224,23 +227,26 @@ streamlit run app.py
 
 #### 후속 작업 제안 카드
 
-응답 하단에 실행된 Tool 기반으로 2~3개의 추천 카드 표시. 카드 클릭 시 해당 질문을 자동 입력.
+응답 하단에 `generate_suggestions_ai()`가 **최대 4개** 추천 카드를 표시합니다 (LLM 생성 + `_WORKFLOW_FALLBACK` 정적 fallback). 카드 클릭 시 해당 질문이 입력창에 자동 입력됩니다.
 
-#### 사이드바 기능
+#### 사이드바·헤더 기능
 
-- **자동 모델** 패널: 질문 처리 후 `auto_route`에 담긴 모델명·작업 라벨 표시 (읽기 전용)
-- 질문 전 안내 문구: *「질문을 입력하면 작업 유형에 맞는 모델이 자동 선택됩니다」*
+- **자동 모델** (사이드바): 질문 전 `analysis` 기본 풀 안내 → 질문 후 `auto_route` 모델명·작업 라벨 (읽기 전용)
 - 파일 멀티선택 (File Manager에서 선택 파일 자동 연동)
 - 코드 히스토리 (최근 8개, 클릭 시 재실행)
-- 대화 초기화
+- **대화 초기화** (사이드바 + 메인 헤더)
 
 #### Tool → LLM 역할 (`TOOL_ROLES`)
 
-Planner/Explainer가 쓰는 모델은 Tool 종류에 따라 `role_models`에서 고릅니다.
+| 단계 | 모델 선택 방식 |
+|---|---|
+| **Planner** (`call_planner`) | `classify_task(질문)` → 작업 유형별 모델 |
+| **Explainer** (`stream_explainer`) | 계획 **첫 번째 Tool**의 `TOOL_ROLES` → `role_models` |
+| **Fallback** (`stream_ai_fallback`) | `code` / `code_generation` 고정 |
 
 | Tool 예시 | `TOOL_ROLES` | Model Manager 역할 |
 |---|---|---|
-| `aggregate`, `compare_files`, `calculate_ratio` | `analysis` | 엑셀 분석 |
+| `list_files`, `preview_file`, `aggregate`, `compare_files`, `calculate_ratio` … | `analysis` | 엑셀 분석 |
 | `visualize` | `code` | 코드 실행 |
 | Fallback `exec()` | `code` | 코드 실행 |
 
@@ -268,7 +274,7 @@ Planner/Explainer가 쓰는 모델은 Tool 종류에 따라 `role_models`에서 
 
 결과 파일 관리 및 대화 내보내기.
 
-- **Chat 저장**: 현재 세션의 AI 대화를 Markdown 파일로 저장 (`outputs/`)
+- **Chat 저장**: Results 페이지 헤더 버튼 — Streamlit 세션의 `messages`(AI Prompt 대화)를 Markdown으로 `outputs/`에 저장
 - **Markdown 작성**: 새 메모·보고서 직접 작성
 - **파일 목록**: 파일명·유형 배지(markdown/excel/csv)·날짜·크기
 - **미리보기**: `.md` → 렌더링 / `.xlsx,.xls` → 데이터프레임(최대 50행) / `.csv` → 데이터프레임
@@ -375,11 +381,14 @@ flowchart TD
 | **결정론적 실행** | Tool 내부는 순수 Python — 같은 입력은 항상 같은 결과 |
 | **ctx 누적** | 이전 Tool 결과를 다음 Tool이 참조 가능하도록 연결 |
 
-현재 구현된 9개 Tool로 처리 가능한 실무 요청 범위:
+현재 구현된 11개 Tool로 처리 가능한 실무 요청 범위:
 
 ```mermaid
 mindmap
   root((Tool))
+    파일 탐색
+      list_files\n업로드 목록
+      preview_file\n데이터 미리보기
     데이터 조회
       inspect_column\n열 분석·셀 주소
       compare_files\n파일 간 diff

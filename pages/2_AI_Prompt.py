@@ -94,7 +94,12 @@ with st.sidebar:
         )
         st.caption(f"{_route.task_label} · 자동 선택됨")
     else:
-        st.caption("질문을 입력하면 작업 유형에 맞는 모델이 자동 선택됩니다")
+        _default_route = route_for_role("analysis", "", cfg) if has_model_pool(cfg) else None
+        if _default_route:
+            st.caption(f"기본 풀: {_default_route.display}")
+            st.caption("질문 입력 시 작업 유형별로 자동 변경됩니다")
+        else:
+            st.caption("질문을 입력하면 작업 유형에 맞는 모델이 자동 선택됩니다")
 
     st.divider()
     st.markdown("### 파일 선택")
@@ -1083,8 +1088,12 @@ JSON 외 다른 텍스트 절대 없이. 반드시 valid JSON만.
 
 출력 형식:
 {{"summary":"한 줄 설명","steps":[{{"tool":"도구명","args":{{"key":"value"}}}}]}}"""
-    st.session_state["auto_route"] = route_for_prompt(question, load_model_config())
-    raw = _call_ai_with_role([{"role": "user", "content": question}], system=sys_prompt, role="analysis")
+    raw = call_ai_raw(
+        [{"role": "user", "content": question}],
+        system=sys_prompt,
+        prompt=question,
+        task_type=classify_task(question),
+    )
     try:
         m = re.search(r'\{.*\}', raw, re.DOTALL)
         if m: return json.loads(m.group())
@@ -1093,7 +1102,7 @@ JSON 외 다른 텍스트 절대 없이. 반드시 valid JSON만.
     return None
 
 
-def call_explainer(question: str, plan: dict, results: list) -> str:
+def call_explainer(question: str, plan: dict, results: list, role: str = "analysis") -> str:
     """Phase 3: 실제 결과를 받아 한국어로 설명."""
     results_text = []
     for item in results:
@@ -1156,10 +1165,14 @@ def call_ai_fallback(messages: list, file_context: str) -> str:
         파일 데이터:
         {file_context}
     """)
-    return call_ai_raw(messages, system=system)
+    user_text = next((m["content"] for m in reversed(messages) if m.get("role") == "user"), "")
+    return call_ai_raw(
+        messages, system=system, prompt=user_text,
+        role="code", task_type="code_generation",
+    )
 
 
-def stream_ai_fallback(messages: list, file_context: str):
+def stream_ai_fallback(messages: list, file_context: str, *, prompt: str = ""):
     """Fallback: 코드 생성 방식 (스트리밍)."""
     system = textwrap.dedent(f"""\
         당신은 한국 행정 담당자를 위한 엑셀 분석 전문가입니다.
@@ -1187,7 +1200,13 @@ def stream_ai_fallback(messages: list, file_context: str):
         ## 파일 데이터
         {file_context}
     """)
-    yield from stream_ai_raw(messages, system=system)
+    user_text = prompt or next(
+        (m["content"] for m in reversed(messages) if m.get("role") == "user"), ""
+    )
+    yield from stream_ai_raw(
+        messages, system=system, prompt=user_text,
+        role="code", task_type="code_generation",
+    )
 
 
 # ══════════════════════════════════════════════
@@ -1600,6 +1619,9 @@ else:
     prompt   = typed or _pending
 
 if prompt:
+    _route_preview = route_for_prompt(prompt, load_model_config())
+    if _route_preview:
+        st.session_state["auto_route"] = _route_preview
     st.session_state.messages.append({"role": "user", "content": prompt})
     with st.chat_message("user"):
         st.markdown(prompt)
@@ -1712,8 +1734,7 @@ if prompt:
                 hist      = [{"role": m["role"], "content": m["content"]}
                              for m in st.session_state.messages]
                 proc_status.update(label="처리 완료", state="complete", expanded=False)
-                st.session_state["auto_route"] = route_for_role("code", prompt, load_model_config())
-                ai_resp = st.write_stream(stream_ai_fallback(hist, ctx_str))
+                ai_resp = st.write_stream(stream_ai_fallback(hist, ctx_str, prompt=prompt))
                 msg_data["content"] = ai_resp
                 msg_data["_streamed"] = True
                 _fb_blocks = re.findall(r"```python\s*\n(.*?)```", ai_resp, re.DOTALL)
@@ -1732,5 +1753,4 @@ if prompt:
         msg_data.pop("_streamed", None)
 
     st.session_state.messages.append(msg_data)
-    if msg_data.get("_pending_code"):
-        st.rerun()
+    st.rerun()

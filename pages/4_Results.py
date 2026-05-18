@@ -138,7 +138,7 @@ with hb2:
     st.markdown("</div>", unsafe_allow_html=True)
 
 if not has_msgs:
-    st.caption("대화 저장: AI Prompt에서 대화 후 'Chat 저장' 버튼을 누르세요")
+    st.caption("대화 저장: AI Prompt에서 대화한 뒤, 이 페이지 상단 **Chat 저장** 버튼을 누르세요")
 
 st.divider()
 
