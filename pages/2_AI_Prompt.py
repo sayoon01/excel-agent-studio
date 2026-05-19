@@ -17,6 +17,10 @@ import matplotlib.pyplot as plt
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from utils.activity_log import add_entry
+from utils import file_registry
+from utils.chat_session import ChatSession
+from utils.excel_processor import describe_df, infer_key_column
+from utils.excel_processor import merge_by_key as _merge_by_key
 from utils.task_router import (
     RouteResult,
     call_with_route,
@@ -27,10 +31,40 @@ from utils.task_router import (
     stream_with_route,
     TASK_LABELS,
 )
-from utils.styles import apply_global_css
+from utils.styles import apply_global_css, sidebar_brand, loading_dots
+from utils.model_dialog import model_settings_dialog
 
-st.set_page_config(page_title="AI Prompt", page_icon="💬", layout="wide")
-apply_global_css()
+st.set_page_config(page_title="Workspace", page_icon="💬", layout="wide")
+apply_global_css("""<style>
+/* ── 파일 패널 체크박스 레이블 숨김 처리 ── */
+[data-testid="stCheckbox"] label { font-size: 13px !important; }
+/* ── 파일 패널 expander 컴팩트 ── */
+[data-testid="stExpander"] summary {
+    font-size: 12px !important;
+    padding: 6px 10px !important;
+    white-space: nowrap !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+}
+/* ── 파일 패널 좌측 패딩 축소 ── */
+[data-testid="stVerticalBlock"] [data-testid="stHorizontalBlock"]:has([data-testid="stCheckbox"]) {
+    gap: 2px !important;
+}
+/* ── 빠른 명령 chip 스타일 ── */
+[data-testid="stColumn"]:has(.chip-zone) button {
+    height: 28px !important; min-height: 28px !important; max-height: 28px !important;
+    border-radius: 14px !important; font-size: 12px !important;
+    padding: 0 12px !important; font-weight: 500 !important;
+    background: #f8fafc !important; color: #475569 !important;
+    border: 1px solid #e2e8f0 !important;
+    transition: background 0.15s, color 0.15s, border-color 0.15s !important;
+    white-space: nowrap !important; overflow: hidden !important;
+}
+[data-testid="stColumn"]:has(.chip-zone) button:hover {
+    background: #eff6ff !important; color: #1d4ed8 !important;
+    border-color: #bfdbfe !important;
+}
+</style>""")
 
 UPLOAD_DIR   = Path("uploads")
 OUTPUT_DIR   = Path("outputs")
@@ -42,6 +76,24 @@ OUTPUT_DIR.mkdir(exist_ok=True)
 for key, default in [("messages", []), ("tokens_used", 0)]:
     if key not in st.session_state:
         st.session_state[key] = default
+if "chat_session" not in st.session_state:
+    st.session_state["chat_session"] = ChatSession()
+
+# ── 파일 선택 상태 초기화 ──
+_all_excel = sorted(
+    [f.name for f in UPLOAD_DIR.glob("*")
+     if f.suffix.lower() in (".xlsx", ".xls", ".csv") and f.name != ".gitkeep"],
+    key=str.lower,
+)
+if "ai_prompt_preselect" in st.session_state:
+    _pre = st.session_state.pop("ai_prompt_preselect")
+    st.session_state["selected_files"] = [n for n in _pre if n in _all_excel] or _all_excel
+if "selected_files" not in st.session_state:
+    st.session_state["selected_files"] = list(_all_excel)
+else:
+    st.session_state["selected_files"] = [
+        n for n in st.session_state["selected_files"] if n in _all_excel
+    ]
 
 
 # ══════════════════════════════════════════════
@@ -81,9 +133,31 @@ def load_model_config() -> dict:
 cfg = load_model_config()
 
 with st.sidebar:
+    sidebar_brand()
+
+    # ── 미니 통계 위젯 ──
+    _n_files = len([f for f in UPLOAD_DIR.glob("*") if f.name != ".gitkeep"])
+    _tokens  = st.session_state.get("tokens_used", 0)
+    _tok_str = f"{_tokens/1000:.1f}k" if _tokens >= 1000 else str(_tokens)
+    st.markdown(
+        f'<div style="display:flex;gap:6px;margin-bottom:14px">'
+        f'<div style="flex:1;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;'
+        f'padding:8px 10px;text-align:center">'
+        f'<div style="font-size:17px;font-weight:700;color:#1e293b;line-height:1.2">{_n_files}</div>'
+        f'<div style="font-size:10px;color:#94a3b8;font-weight:600;letter-spacing:.06em">FILES</div>'
+        f'</div>'
+        f'<div style="flex:1;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;'
+        f'padding:8px 10px;text-align:center">'
+        f'<div style="font-size:17px;font-weight:700;color:#1e293b;line-height:1.2">{_tok_str}</div>'
+        f'<div style="font-size:10px;color:#94a3b8;font-weight:600;letter-spacing:.06em">TOKENS</div>'
+        f'</div>'
+        f'</div>',
+        unsafe_allow_html=True,
+    )
+
     st.markdown("### 자동 모델")
     if not has_model_pool(cfg):
-        st.warning("모델 풀 미등록 — Model Manager에서 Ollama/API를 연결하세요")
+        st.warning("모델 풀 미등록 — 하단 ⚙ 모델 설정에서 Ollama/API를 연결하세요")
     _route = st.session_state.get("auto_route")
     if _route:
         st.markdown(
@@ -102,22 +176,6 @@ with st.sidebar:
             st.caption("질문을 입력하면 작업 유형에 맞는 모델이 자동 선택됩니다")
 
     st.divider()
-    st.markdown("### 파일 선택")
-    excel_files = sorted([f for f in UPLOAD_DIR.glob("*")
-                          if f.suffix.lower() in (".xlsx", ".xls", ".csv")], key=lambda f: f.name)
-    if excel_files:
-        all_names   = [f.name for f in excel_files]
-        preselect   = st.session_state.pop("ai_prompt_preselect", None)
-        default_sel = ([n for n in preselect if n in all_names] if preselect else all_names)
-        if preselect:
-            st.info(f"File Manager에서 {len(default_sel)}개 파일이 선택됐습니다.")
-        selected_files = st.multiselect("Select files", all_names, default=default_sel)
-        st.caption(f"✅ {len(selected_files)}개 파일 선택됨")
-    else:
-        selected_files = []
-        st.info("File Manager에서 파일을 먼저 업로드하세요")
-
-    st.divider()
     history = load_history()
     if history:
         st.markdown("### 코드 히스토리")
@@ -133,20 +191,115 @@ with st.sidebar:
 
     has_msgs = bool(st.session_state.get("messages"))
     if has_msgs:
-        msgs = st.session_state.get("messages", [])
-        ts   = __import__("datetime").datetime.now().strftime("%Y%m%d_%H%M%S")
-        md_lines = [f"# AI Chat — {ts}\n"]
-        for _m in msgs:
-            _role = "User" if _m["role"] == "user" else "AI"
-            md_lines.append(f"### {_role}\n\n{_m.get('content','')}\n\n---\n")
-        md_content = "\n".join(md_lines)
+        session = st.session_state["chat_session"]
+        session.messages = st.session_state.get("messages", [])
+        md_content = session.to_markdown()
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
         st.download_button(
             "대화 저장 (MD)", data=md_content.encode("utf-8"),
-            file_name=f"chat_{ts}.md", mime="text/markdown",
+            file_name=f"chat_{session.id}_{ts}.md", mime="text/markdown",
             use_container_width=True,
         )
     if st.button("대화 초기화", use_container_width=True):
         st.session_state.messages = []; st.rerun()
+
+    st.divider()
+    if st.button("⚙ 모델 설정", use_container_width=True):
+        model_settings_dialog()
+
+
+# ══════════════════════════════════════════════
+# 파일 패널 (Workspace 왼쪽 패널)
+# ══════════════════════════════════════════════
+
+@st.dialog("파일 업로드")
+def _upload_dialog():
+    uploaded = st.file_uploader(
+        "엑셀 또는 CSV 선택",
+        type=["xlsx", "xls", "csv"],
+        accept_multiple_files=True,
+        label_visibility="collapsed",
+    )
+    if uploaded:
+        names = []
+        for f in uploaded:
+            (UPLOAD_DIR / f.name).write_bytes(f.getbuffer())
+            add_entry("업로드", f.name, "uploaded")
+            names.append(f.name)
+        st.success(f"✅ {len(names)}개 업로드 완료")
+        if st.button("닫기", type="primary", use_container_width=True):
+            st.rerun()
+
+
+def _render_file_panel() -> list[str]:
+    """Workspace 왼쪽 파일 패널 — 체크박스 선택 + 업로드 + 인라인 미리보기."""
+    _fh, _fb = st.columns([3, 1])
+    _fh.markdown("**Files**")
+    if _fb.button("⬆", use_container_width=True, key="ws_upload_btn", help="파일 업로드"):
+        _upload_dialog()
+
+    files = sorted(
+        [f for f in UPLOAD_DIR.glob("*")
+         if f.suffix.lower() in (".xlsx", ".xls", ".csv") and f.name != ".gitkeep"],
+        key=lambda f: f.stat().st_mtime, reverse=True,
+    )
+
+    if not files:
+        st.markdown(
+            '<div style="padding:32px 0;text-align:center;color:#94a3b8;font-size:13px">'
+            '📂 파일이 없습니다<br>Upload 버튼으로 추가하세요</div>',
+            unsafe_allow_html=True,
+        )
+        return []
+
+    total_kb = sum(f.stat().st_size for f in files) // 1024
+    st.caption(f"{len(files)}개 파일 · {total_kb} KB")
+
+    _all_names = [f.name for f in files]
+    cur_sel    = st.session_state.get("selected_files", _all_names)
+    _all_on    = all(n in cur_sel for n in _all_names)
+
+    new_all = st.checkbox("전체 선택", value=_all_on, key="ws_chk_all")
+    if new_all != _all_on:
+        st.session_state["selected_files"] = _all_names if new_all else []
+
+    st.markdown("<div style='height:4px'></div>", unsafe_allow_html=True)
+
+    for fp in files:
+        ext      = fp.suffix.lower()
+        icon     = "📊" if ext in (".xlsx", ".xls") else "📋"
+        size_str = f"{fp.stat().st_size // 1024} KB"
+        is_on    = fp.name in st.session_state.get("selected_files", [])
+
+        _cc, _cn = st.columns([0.13, 0.87])
+        new_on = _cc.checkbox(
+            "", value=is_on, key=f"ws_chk_{fp.name}", label_visibility="collapsed"
+        )
+        if new_on != is_on:
+            sel = list(st.session_state.get("selected_files", []))
+            if new_on:
+                sel.append(fp.name)
+            else:
+                sel = [n for n in sel if n != fp.name]
+            st.session_state["selected_files"] = sel
+
+        with _cn.expander(f"{icon} {fp.name}"):
+            st.caption(size_str)
+            try:
+                if ext == ".csv":
+                    _dfp = pd.read_csv(fp, nrows=5)
+                else:
+                    _dfp = _read_excel_smart(fp)
+                st.dataframe(_dfp.head(5), use_container_width=True, height=160)
+            except Exception:
+                st.caption("미리보기 실패")
+
+        st.markdown(
+            "<hr style='margin:3px 0;border:none;border-top:1px solid #f1f5f9'>",
+            unsafe_allow_html=True,
+        )
+
+    return list(st.session_state.get("selected_files", []))
 
 
 # ══════════════════════════════════════════════
@@ -428,7 +581,40 @@ def tool_export(args: dict, ctx: dict, dfs: dict) -> dict:
     out  = OUTPUT_DIR / name
     if name.endswith(".csv"): df.to_csv(out, index=False, encoding="utf-8-sig")
     else: df.to_excel(out, index=False)
+    file_registry.register(out)
     return {"output_file": str(out), "filename": name, "rows": len(df), "cols": len(df.columns)}
+
+
+def tool_merge_files(args: dict, ctx: dict, dfs: dict) -> dict:
+    """여러 파일을 기준 컬럼(항목명)으로 통합 — 통합결과·파일별비교·처리로그 3시트 엑셀 저장."""
+    filenames = args.get("filenames") or list(dfs.keys())
+    key_col   = args.get("key_column") or None
+    named     = [(fn, dfs[fn]) for fn in filenames if fn in dfs]
+    if len(named) < 2:
+        return {"text": f"통합할 파일이 2개 이상 필요합니다. 현재 로드됨: {len(named)}개"}
+
+    sheets = _merge_by_key(named, key_col=key_col)
+
+    ts  = datetime.now().strftime("%Y%m%d_%H%M%S")
+    out = OUTPUT_DIR / f"통합결과_{ts}.xlsx"
+    with pd.ExcelWriter(out, engine="openpyxl") as writer:
+        for sheet_name, df in sheets.items():
+            if not df.empty:
+                df.to_excel(writer, sheet_name=sheet_name, index=False)
+    file_registry.register(out)
+    add_entry("AI 처리", out.name, "executed", "merge_by_key")
+
+    result_df = sheets.get("통합결과", pd.DataFrame())
+    key_used  = key_col or (infer_key_column(named[0][1]) if named else "")
+    return {
+        "output_file": str(out),
+        "filename": out.name,
+        "rows": len(result_df),
+        "cols": len(result_df.columns),
+        "dataframe": result_df,
+        "key_column": key_used,
+        "file_count": len(named),
+    }
 
 
 def tool_list_files(args: dict, ctx: dict, dfs: dict) -> dict:
@@ -481,7 +667,7 @@ def tool_preview_file(args: dict, ctx: dict, dfs: dict) -> dict:
             return {"text": f"파일 '{fname}'을 찾을 수 없습니다."}
     df = dfs[fname]
     return {
-        "text": f"{fname} — {len(df):,}행 × {len(df.columns)}열 (처음 {min(n_rows, len(df))}행 표시)",
+        "text": f"{fname} — {len(df):,}행 × {len(df.columns)}열 (처음 {min(n_rows, len(df))}행 표시)\n{describe_df(df)}",
         "dataframe": df.head(n_rows),
     }
 
@@ -499,6 +685,7 @@ TOOL_REGISTRY: dict = {
     "fill_missing":     tool_fill_missing,
     "visualize":        tool_visualize,
     "export":           tool_export,
+    "merge_files":      tool_merge_files,
 }
 
 TOOL_ROLES: dict[str, str] = {
@@ -513,6 +700,7 @@ TOOL_ROLES: dict[str, str] = {
     "calculate_ratio":  "analysis",
     "fill_missing":     "analysis",
     "export":           "analysis",
+    "merge_files":      "analysis",
 }
 
 TOOL_DESCRIPTIONS = """
@@ -527,6 +715,7 @@ TOOL_DESCRIPTIONS = """
 - fill_missing     : 빈 셀 채우기               (args: file, method[zero/ffill/mean], columns)
 - visualize        : 차트 생성                   (args: file, chart_type[bar/line/pie], x, y)
 - export           : 결과 엑셀/CSV 저장         (args: source_step, filename)
+- merge_files      : 여러 파일을 기준 컬럼으로 통합 (args: filenames[], key_column) ← "파일 합쳐줘", "통합해줘" 등
 """.strip()
 
 # ── 추천 타입 메타 (icon, bg, fg) ──
@@ -593,6 +782,12 @@ _WORKFLOW_FALLBACK: dict[str, list[dict]] = {
         {"type": "analyze", "text": "저장한 파일 내용 요약해줘"},
         {"type": "insight", "text": "전체 분석 결과 요약 리포트 만들어줘"},
     ],
+    "merge_files": [
+        {"type": "analyze", "text": "통합 결과를 집행률 계산해줘"},
+        {"type": "analyze", "text": "통합 결과를 막대 차트로 시각화해줘"},
+        {"type": "analyze", "text": "값 상이 항목만 필터링해줘"},
+        {"type": "insight", "text": "통합 전후 차이 요약해줘"},
+    ],
 }
 
 
@@ -621,6 +816,9 @@ def _summarize_tool_result(tool: str, res: dict) -> str:
         return f"결측치 처리 — {res.get('filled',0)}개 채움 ({res.get('method','')})"
     if tool == "export":
         return f"파일 저장 — {res.get('filename','')}"
+    if tool == "merge_files":
+        return (f"파일 통합 — {res.get('file_count',0)}개 파일 → "
+                f"{res.get('rows',0)}행 × {res.get('cols',0)}열 ({res.get('filename','')})")
     return tool
 
 
@@ -928,6 +1126,14 @@ def _render_verification_card(tool: str, result: dict) -> None:
         lines += [
             f"저장 파일: <b>{result.get('filename','?')}</b>",
             f"크기: <b>{result.get('rows',0)}행 × {result.get('cols',0)}열</b>",
+        ]
+
+    elif tool == "merge_files":
+        lines += [
+            f"저장 파일: <b>{result.get('filename','?')}</b>",
+            f"기준 컬럼: <code>{result.get('key_column','(자동 추정)')}</code> &nbsp; 통합 파일 수: <b>{result.get('file_count',0)}개</b>",
+            f"통합 결과: <b>{result.get('rows',0)}행 × {result.get('cols',0)}열</b>",
+            "시트 구성: <b>통합결과</b> · 파일별비교 · 처리로그",
         ]
 
     else:
@@ -1246,6 +1452,7 @@ def extract_and_run_code(response_text: str):
         else:
             df.to_excel(out, index=False)
         add_entry("AI 처리", safe, "executed", "save() via code")
+        file_registry.register(out)
         return str(out)
 
     # ── 제한된 builtins (open, eval, exec 등 차단) ──
@@ -1543,49 +1750,56 @@ def render_message(msg: dict, sections: set[str] | None = None):
 # 메인 UI
 # ══════════════════════════════════════════════
 
-_h_title, _h_btn = st.columns([5, 1])
-_h_title.markdown("## AI Prompt")
-with _h_btn:
-    st.markdown("<div style='padding-top:12px'>", unsafe_allow_html=True)
-    if st.button("대화 초기화", use_container_width=True, help="채팅 기록을 모두 지웁니다"):
-        st.session_state["messages"] = []
-        st.session_state["tokens_used"] = 0
-        st.session_state.pop("_pending", None)
-        st.session_state.pop("_exec_prompt", None)
-        st.rerun()
-    st.markdown("</div>", unsafe_allow_html=True)
+# ── Workspace 2-컬럼 레이아웃 ──
+_ws_left, _ws_right = st.columns([3, 7], gap="medium")
+
+with _ws_left:
+    selected_files = _render_file_panel()
+
+# 오른쪽 패널을 기본 컨테이너로 설정 (이후 모든 st.* 호출이 여기에 렌더됨)
+_ws_right.__enter__()
+
+st.markdown("## Workspace")
 
 # ── 선택 파일 태그 ──
 if selected_files:
     tags = "".join(
-        f'<span style="background:#dbeafe;color:#1e40af;padding:3px 10px;'
-        f'border-radius:20px;font-size:12px;font-weight:500;margin-right:6px">{fn}</span>'
+        f'<span class="file-chip">{fn}</span>'
         for fn in selected_files[:6]
     )
     if len(selected_files) > 6:
-        tags += f'<span style="color:#64748b;font-size:12px">+{len(selected_files)-6}개 더</span>'
+        tags += f'<span style="color:var(--c-muted);font-size:12px">+{len(selected_files)-6}개 더</span>'
     st.markdown(tags, unsafe_allow_html=True)
 
-# ── 빠른 명령 버튼 ──
+# ── 빠른 명령 chip ──
 if selected_files:
-    st.markdown('<div style="font-size:11px;color:#94a3b8;margin:8px 0 4px">빠른 명령</div>',
-                unsafe_allow_html=True)
-    _PRESETS = [
-        ("열 설명",    "각 열이 무슨 의미인지 설명해줘"),
-        ("집행률 계산", "계획 대비 집행률을 계산해줘"),
-        ("이상값 찾기", "비어있거나 0인 값, 이상한 패턴을 찾아줘"),
-        ("소계 제외",  "합계·소계 행을 제외하고 데이터만 정리해줘"),
-        ("파일 비교",  "선택된 파일들을 비교해줘"),
-        ("데이터 추출", "데이터를 전체 추출해서 보여줘"),
-        ("엑셀 저장",  "정리된 데이터를 새 엑셀 파일로 저장해줘"),
-        ("차트 생성",  "주요 수치를 막대 차트로 시각화해줘"),
+    _PRESET_GROUPS = [
+        ("분석", [
+            ("열 설명",    "각 열이 무슨 의미인지 설명해줘"),
+            ("집행률 계산", "계획 대비 집행률을 계산해줘"),
+            ("이상값 찾기", "비어있거나 0인 값, 이상한 패턴을 찾아줘"),
+            ("파일 비교",  "선택된 파일들을 비교해줘"),
+        ]),
+        ("가공·내보내기", [
+            ("소계 제외",  "합계·소계 행을 제외하고 데이터만 정리해줘"),
+            ("데이터 추출", "데이터를 전체 추출해서 보여줘"),
+            ("엑셀 저장",  "정리된 데이터를 새 엑셀 파일로 저장해줘"),
+            ("차트 생성",  "주요 수치를 막대 차트로 시각화해줘"),
+        ]),
     ]
-    for row_start in range(0, len(_PRESETS), 4):
-        row_items = _PRESETS[row_start:row_start + 4]
-        cols = st.columns(4)
-        for i, (lbl, cmd) in enumerate(row_items):
-            if cols[i].button(lbl, key=f"preset_{row_start+i}", use_container_width=True):
-                st.session_state["_pending"] = cmd; st.rerun()
+    for _cat, _presets in _PRESET_GROUPS:
+        st.markdown(
+            f'<div style="font-size:10px;font-weight:700;color:#94a3b8;'
+            f'letter-spacing:.08em;text-transform:uppercase;margin:8px 0 2px">'
+            f'{_cat}</div>',
+            unsafe_allow_html=True,
+        )
+        _pcols = st.columns(len(_presets))
+        for _pi, (_lbl, _cmd) in enumerate(_presets):
+            _pcols[_pi].markdown('<span class="chip-zone" style="display:none"></span>',
+                                 unsafe_allow_html=True)
+            if _pcols[_pi].button(_lbl, key=f"preset_{_cat}_{_pi}", use_container_width=True):
+                st.session_state["_pending"] = _cmd; st.rerun()
 
 st.markdown("")
 
@@ -1615,8 +1829,26 @@ if _last_msg.get("_pending_code"):
     prompt = None
 else:
     _pending = st.session_state.pop("_pending", None)
-    typed    = st.chat_input("파일에 대해 무엇이든 물어보세요  (예: 'B열 값 나열', '집행률 계산', '두 파일 비교')")
-    prompt   = typed or _pending
+    chat_in  = st.chat_input(
+        "파일에 대해 무엇이든 물어보세요  (예: 'B열 값 나열', '집행률 계산', '두 파일 비교')",
+        accept_file="multiple",
+        file_type=["csv", "xlsx", "xls"],
+    )
+    if chat_in is not None:
+        _newly_attached: list[str] = []
+        for f in (chat_in.files or []):
+            dest = UPLOAD_DIR / f.name
+            dest.write_bytes(f.getvalue())
+            add_entry("업로드", f.name, "uploaded", "chat-attach")
+            _newly_attached.append(f.name)
+        if _newly_attached:
+            _prev = st.session_state.get("_chat_attached", [])
+            st.session_state["_chat_attached"] = list(set(_prev + _newly_attached))
+        prompt = chat_in.text or _pending
+        if _newly_attached and not prompt:
+            st.rerun()
+    else:
+        prompt = _pending
 
 if prompt:
     _route_preview = route_for_prompt(prompt, load_model_config())
@@ -1628,6 +1860,10 @@ if prompt:
 
     with st.chat_message("assistant"):
         target_files = detect_target_files(prompt, selected_files) if selected_files else []
+        # 채팅창에서 직접 첨부한 파일 포함
+        for _fn in st.session_state.pop("_chat_attached", []):
+            if _fn not in target_files:
+                target_files.append(_fn)
         msg_data: dict = {"role": "assistant", "content": "",
                           "_id": datetime.now().strftime("%Y%m%d%H%M%S%f")}
 
@@ -1656,9 +1892,11 @@ if prompt:
 
             # ── Phase 1: 계획 생성 ──
             if dfs:
-                st.write("실행 계획 생성 중…")
+                _plan_ph = st.empty()
+                _plan_ph.markdown(loading_dots(), unsafe_allow_html=True)
                 summaries = get_file_summaries(target_files, dfs)
                 plan      = call_planner(prompt, summaries)
+                _plan_ph.write("실행 계획 생성 완료")
             else:
                 # 파일 미선택이어도 UPLOAD_DIR에 파일이 있으면 Planner 호출
                 # (list_files 같은 도구는 dfs 없이 디렉터리 직접 스캔)
@@ -1685,6 +1923,7 @@ if prompt:
                 # ── Phase 2: Tool 실행 ──
                 ctx: dict = {}
                 tool_results: list = []
+                file_registry.reset()
 
                 for step in plan["steps"]:
                     tname = step.get("tool", "")
@@ -1708,6 +1947,20 @@ if prompt:
 
                 proc_status.update(label="도구 실행 완료", state="complete", expanded=False)
 
+                # 레지스트리 파일 중 tool_results에서 이미 output_file로 노출된 것은 제외
+                # (tools 섹션에서 이미 다운로드 버튼이 렌더링되므로 중복 방지)
+                _already_in_tools = {
+                    r["result"].get("output_file")
+                    for r in tool_results
+                    if "output_file" in r.get("result", {})
+                }
+                _extra_files = [
+                    str(p) for p in file_registry.get_all()
+                    if p.exists() and str(p) not in _already_in_tools
+                ]
+                if _extra_files:
+                    msg_data["output_files"] = _extra_files
+
                 msg_data["plan"]         = plan
                 msg_data["tool_results"] = tool_results
                 render_message(msg_data, sections={"plan", "tools"})
@@ -1716,7 +1969,10 @@ if prompt:
                 _plan_role = TOOL_ROLES.get(
                     plan.get("steps", [{}])[0].get("tool", ""), "analysis"
                 )
+                _explain_ph = st.empty()
+                _explain_ph.markdown(loading_dots(), unsafe_allow_html=True)
                 explanation = st.write_stream(stream_explainer(prompt, plan, tool_results, role=_plan_role))
+                _explain_ph.empty()
                 msg_data["content"]  = explanation
                 msg_data["_streamed"] = True
 
@@ -1754,3 +2010,5 @@ if prompt:
 
     st.session_state.messages.append(msg_data)
     st.rerun()
+
+_ws_right.__exit__(None, None, None)

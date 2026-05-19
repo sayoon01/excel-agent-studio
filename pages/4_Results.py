@@ -9,7 +9,7 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from utils.activity_log import add_entry
-from utils.styles import apply_global_css, empty_state
+from utils.styles import apply_global_css, empty_state, sidebar_brand
 
 st.set_page_config(page_title="Results", page_icon="📝", layout="wide")
 
@@ -35,44 +35,50 @@ apply_global_css("""<style>
 }
 /* ── 미리보기 버튼 — 파란색 계열 ── */
 [data-testid="stColumn"]:has(.rpv-zone) button {
-    height: 30px !important; min-height: 30px !important; max-height: 30px !important;
-    padding: 0 !important; font-size: 15px !important; border-radius: 8px !important;
+    height: 32px !important; min-height: 32px !important; max-height: 32px !important;
+    padding: 0 !important; font-size: 16px !important; border-radius: 8px !important;
     background: #eff6ff !important; color: #1d4ed8 !important;
     border: 1px solid #bfdbfe !important;
     display: flex !important; align-items: center !important;
     justify-content: center !important; width: 100% !important;
-    box-sizing: border-box !important; transition: background 0.15s !important;
+    box-sizing: border-box !important; overflow: visible !important;
+    transition: background 0.15s !important;
 }
 [data-testid="stColumn"]:has(.rpv-zone) button:hover {
     background: #dbeafe !important; border-color: #93c5fd !important;
 }
 /* ── 다운로드 버튼 — 초록색 계열 ── */
 [data-testid="stDownloadButton"] > button {
-    height: 30px !important; min-height: 30px !important; max-height: 30px !important;
-    padding: 0 !important; font-size: 15px !important; border-radius: 8px !important;
+    height: 32px !important; min-height: 32px !important; max-height: 32px !important;
+    padding: 0 !important; font-size: 16px !important; border-radius: 8px !important;
     background: #f0fdf4 !important; color: #16a34a !important;
     border: 1px solid #bbf7d0 !important;
     display: flex !important; align-items: center !important;
     justify-content: center !important; width: 100% !important;
-    box-sizing: border-box !important; transition: background 0.15s !important;
+    box-sizing: border-box !important; overflow: visible !important;
+    transition: background 0.15s !important;
 }
 [data-testid="stDownloadButton"] > button:hover {
     background: #dcfce7 !important; border-color: #86efac !important;
 }
 /* ── 삭제 버튼 — 빨간색 계열 ── */
 [data-testid="stColumn"]:has(.rdel-zone) button {
-    height: 30px !important; min-height: 30px !important; max-height: 30px !important;
-    padding: 0 !important; font-size: 15px !important; border-radius: 8px !important;
+    height: 32px !important; min-height: 32px !important; max-height: 32px !important;
+    padding: 0 !important; font-size: 16px !important; border-radius: 8px !important;
     background: #fff1f2 !important; color: #dc2626 !important;
     border: 1px solid #fecaca !important;
     display: flex !important; align-items: center !important;
     justify-content: center !important; width: 100% !important;
-    box-sizing: border-box !important; transition: background 0.15s !important;
+    box-sizing: border-box !important; overflow: visible !important;
+    transition: background 0.15s !important;
 }
 [data-testid="stColumn"]:has(.rdel-zone) button:hover {
     background: #fee2e2 !important; border-color: #f87171 !important;
 }
 </style>""")
+
+with st.sidebar:
+    sidebar_brand()
 
 # ── 헤더 ──
 hl, hb1, hb2 = st.columns([4.2, 1.3, 1.0])

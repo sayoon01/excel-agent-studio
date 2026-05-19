@@ -1,0 +1,17 @@
+services:
+  app:
+    build: .
+    ports:
+      - "8501:8501"
+    volumes:
+      - ./uploads:/app/uploads
+      - ./outputs:/app/outputs
+      - ./activity_log.json:/app/activity_log.json
+      - ./model_config.json:/app/model_config.json
+    environment:
+      - PYTHONUNBUFFERED=1
+      # Ollama가 호스트에서 실행 중일 때 컨테이너에서 접근하는 주소
+      - OLLAMA_HOST=${OLLAMA_HOST:-http://host.docker.internal:11434}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped

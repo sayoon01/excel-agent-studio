@@ -10,36 +10,27 @@ from itertools import zip_longest
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from utils.activity_log import add_entry
-from utils.styles import apply_global_css, empty_state
+from utils.styles import apply_global_css, empty_state, sidebar_brand
 
 st.set_page_config(page_title="File Manager", page_icon="📂", layout="wide")
 apply_global_css("""<style>
+/* 다운로드·삭제 아이콘 버튼 */
 [data-testid="stDownloadButton"] > button,
-[data-testid="stColumn"]:has(.pv-zone) button,
 [data-testid="stColumn"]:has(.del-zone) button {
-    height: 28px !important; min-height: 28px !important; max-height: 28px !important;
-    padding: 0 10px !important; font-size: 11px !important; font-weight: 700 !important;
-    letter-spacing: 0.02em !important; border-radius: 6px !important;
+    height: 32px !important; min-height: 32px !important; max-height: 32px !important;
+    padding: 0 !important; font-size: 16px !important; border-radius: 8px !important;
     display: flex !important; align-items: center !important;
-    justify-content: center !important; line-height: 1 !important;
-    box-sizing: border-box !important; width: 100% !important;
-    white-space: nowrap !important;
+    justify-content: center !important; width: 100% !important;
+    box-sizing: border-box !important; line-height: 1 !important;
+    white-space: nowrap !important; overflow: visible !important;
     transition: background 0.15s, border-color 0.15s !important;
 }
 [data-testid="stDownloadButton"] > button {
-    background: #eff6ff !important; color: #1d4ed8 !important;
-    border: 1px solid #bfdbfe !important;
+    background: #f0fdf4 !important; color: #16a34a !important;
+    border: 1px solid #bbf7d0 !important;
 }
 [data-testid="stDownloadButton"] > button:hover {
-    background: #dbeafe !important; border-color: #93c5fd !important;
-}
-[data-testid="stColumn"]:has(.pv-zone) button {
-    background: #f8fafc !important; color: #475569 !important;
-    border: 1px solid #e2e8f0 !important;
-}
-[data-testid="stColumn"]:has(.pv-zone) button:hover {
-    background: #f1f5f9 !important; border-color: #cbd5e1 !important;
-    color: #1e293b !important;
+    background: #dcfce7 !important; border-color: #86efac !important;
 }
 [data-testid="stColumn"]:has(.del-zone) button {
     background: #fff1f2 !important; color: #dc2626 !important;
@@ -48,8 +39,27 @@ apply_global_css("""<style>
 [data-testid="stColumn"]:has(.del-zone) button:hover {
     background: #fee2e2 !important; border-color: #f87171 !important;
 }
+/* 파일명 ghost 버튼 — 텍스트처럼 보이되 클릭 가능 */
+[data-testid="stColumn"]:has(.fname-zone) button {
+    background: transparent !important; border: none !important;
+    box-shadow: none !important; text-align: left !important;
+    justify-content: flex-start !important; color: #1e293b !important;
+    font-weight: 500 !important; font-size: 13px !important;
+    padding: 4px 6px !important; height: auto !important;
+    min-height: unset !important; max-height: unset !important;
+    border-radius: 6px !important; line-height: 1.4 !important;
+    white-space: nowrap !important; overflow: hidden !important;
+    text-overflow: ellipsis !important;
+}
+[data-testid="stColumn"]:has(.fname-zone) button:hover {
+    background: #f1f5f9 !important; color: #2563eb !important;
+    border: none !important;
+}
 .file-divider { border: none; border-top: 1px solid #f1f5f9; margin: 2px 0; }
 </style>""")
+
+with st.sidebar:
+    sidebar_brand()
 
 UPLOAD_DIR = Path("uploads")
 UPLOAD_DIR.mkdir(exist_ok=True)
@@ -457,91 +467,81 @@ def preview_dialog(fp_str: str):
 """
             st.session_state[cache_key] = call_ai_simple(prompt)
 
-    # ── 탭 ──
-    t_raw, t_clean, t_ai, t_log = st.tabs([
-        "원본",
-        "정리 데이터",
-        "AI 분석",
-        "작업 로그",
-    ])
+    # ── 탭 (2개) ──
+    t_data, t_ai = st.tabs(["데이터 보기", "AI 분석"])
 
-    # ══ 원본 탭 ══════════════════════════════════
-    with t_raw:
-        st.caption(
-            "열 이름 = Excel 열 문자 (A, B, C…) · 행 번호 = Excel 행 번호 (1부터) · "
-            "병합 셀은 좌상단 값으로 채워 표시"
-        )
-        with st.spinner(""):
-            df_raw = read_excel_raw(fp_str, sidx)
+    # ══ 데이터 보기 탭 ════════════════════════════
+    with t_data:
+        show_raw = st.toggle("원본 보기 (Excel 열·행 번호)", value=False)
 
-        if df_raw.empty:
-            st.warning("데이터를 읽을 수 없습니다.")
-        else:
-            st.dataframe(
-                df_raw.map(fmt_raw),
-                use_container_width=True,
-                height=440,
+        if show_raw:
+            st.caption(
+                "열 이름 = Excel 열 문자 (A, B, C…) · 행 번호 = Excel 행 번호 (1부터) · "
+                "병합 셀은 좌상단 값으로 채워 표시"
             )
-            st.caption(f"전체 {len(df_raw):,}행 × {len(df_raw.columns)}열")
-
-    # ══ 정리 데이터 탭 ════════════════════════════
-    with t_clean:
-        c_hdr, c_nhdr = st.columns([1, 1.3])
-        hdr = int(c_hdr.number_input(
-            "헤더 시작 행", 0, 10, 0,
-            help="0 = 첫째 행이 헤더 (0-based)\n원본 탭에서 행 번호를 확인 후 입력",
-        ))
-        n_hdr = c_nhdr.selectbox(
-            "헤더 행 수", [1, 2], index=0,
-            help="2 = 대제목+소제목 2행 구조\n예) 실행예산(1행) + 이월예산(2행) → 컬럼명 = 이월예산",
-        )
-        if hdr > 0 or n_hdr == 2:
-            st.caption("소제목이 대제목과 다르면 소제목을 컬럼명으로 사용 · 중복 컬럼명은 _1, _2 추가")
-
-        with st.spinner(""):
-            df = read_excel_smart(fp_str, sidx, hdr, n_hdr)
-
-        if df.empty:
-            st.warning("데이터를 읽을 수 없습니다. 헤더 설정을 조정해보세요.")
+            with st.spinner(""):
+                df_raw = read_excel_raw(fp_str, sidx)
+            if df_raw.empty:
+                st.warning("데이터를 읽을 수 없습니다.")
+            else:
+                st.dataframe(df_raw.map(fmt_raw), use_container_width=True, height=440)
+                st.caption(f"전체 {len(df_raw):,}행 × {len(df_raw.columns)}열")
         else:
-            st.dataframe(df.head(200).map(fmt_val), use_container_width=True, height=300)
-            if len(df) > 200:
-                st.caption(f"처음 200행 표시 / 전체 {len(df):,}행")
-
-            # 컬럼 통계
-            with st.expander("컬럼 통계"):
-                _num = df.select_dtypes(include="number").columns.tolist()
-                _cat = df.select_dtypes(exclude="number").columns.tolist()
-                if _num:
-                    _stats = df[_num].agg(["count", "sum", "mean", "min", "max"])
-                    _stats.index = ["건수", "합계", "평균", "최솟값", "최댓값"]
-                    st.dataframe(
-                        _stats.map(lambda x: f"{x:,.1f}" if pd.notna(x) else "—"),
-                        use_container_width=True,
-                    )
-                for c in _cat[:6]:
-                    uniq_vals = df[c].dropna().unique()
-                    preview   = ", ".join(str(v) for v in uniq_vals[:5])
-                    st.caption(
-                        f"**{c}**: {len(uniq_vals)}개 고유값 — {preview}"
-                        + ("…" if len(uniq_vals) > 5 else "")
-                    )
-
-            buf = io.BytesIO()
-            df.to_excel(buf, index=False)
-            st.download_button(
-                f"⬇ {fp.stem}_정리본.xlsx 다운로드",
-                buf.getvalue(),
-                file_name=f"{fp.stem}_정리본.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            c_hdr, c_nhdr = st.columns([1, 1.3])
+            hdr = int(c_hdr.number_input(
+                "헤더 시작 행", 0, 10, 0,
+                help="0 = 첫째 행이 헤더 (0-based)\n원본 보기에서 행 번호를 확인 후 입력",
+            ))
+            n_hdr = c_nhdr.selectbox(
+                "헤더 행 수", [1, 2], index=0,
+                help="2 = 대제목+소제목 2행 구조\n예) 실행예산(1행) + 이월예산(2행) → 컬럼명 = 이월예산",
             )
+            if hdr > 0 or n_hdr == 2:
+                st.caption("소제목이 대제목과 다르면 소제목을 컬럼명으로 사용 · 중복 컬럼명은 _1, _2 추가")
+
+            with st.spinner(""):
+                df = read_excel_smart(fp_str, sidx, hdr, n_hdr)
+
+            if df.empty:
+                st.warning("데이터를 읽을 수 없습니다. 헤더 설정을 조정해보세요.")
+            else:
+                st.dataframe(df.head(200).map(fmt_val), use_container_width=True, height=300)
+                if len(df) > 200:
+                    st.caption(f"처음 200행 표시 / 전체 {len(df):,}행")
+
+                with st.expander("컬럼 통계"):
+                    _num = df.select_dtypes(include="number").columns.tolist()
+                    _cat = df.select_dtypes(exclude="number").columns.tolist()
+                    if _num:
+                        _stats = df[_num].agg(["count", "sum", "mean", "min", "max"])
+                        _stats.index = ["건수", "합계", "평균", "최솟값", "최댓값"]
+                        st.dataframe(
+                            _stats.map(lambda x: f"{x:,.1f}" if pd.notna(x) else "—"),
+                            use_container_width=True,
+                        )
+                    for c in _cat[:6]:
+                        uniq_vals = df[c].dropna().unique()
+                        preview   = ", ".join(str(v) for v in uniq_vals[:5])
+                        st.caption(
+                            f"**{c}**: {len(uniq_vals)}개 고유값 — {preview}"
+                            + ("…" if len(uniq_vals) > 5 else "")
+                        )
+
+                buf = io.BytesIO()
+                df.to_excel(buf, index=False)
+                st.download_button(
+                    f"⬇ {fp.stem}_정리본.xlsx 다운로드",
+                    buf.getvalue(),
+                    file_name=f"{fp.stem}_정리본.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                )
 
     # ══ AI 분석 탭 ══════════════════════════════════
     with t_ai:
         if not active_model:
             st.warning(
                 "모델이 연결되지 않았습니다. "
-                "**Model Manager**에서 Ollama / OpenAI / Google 중 하나를 활성화하세요."
+                "사이드바 **⚙ 모델 설정**에서 Ollama / OpenAI / Google 중 하나를 활성화하세요."
             )
         else:
             cached = st.session_state.get(cache_key)
@@ -558,42 +558,33 @@ def preview_dialog(fp_str: str):
                 if st.button("분석 재시도", type="primary"):
                     st.rerun()
 
-    # ══ 작업 로그 탭 ══════════════════════════════
-    with t_log:
+        # ── 작업 로그 (접이식) ──
         from utils.activity_log import load_entries
-
         all_entries  = load_entries()
         file_entries = [e for e in all_entries if e.get("filename") == fp.name]
-
-        # AI Prompt 코드 히스토리 중 이 파일을 언급한 항목
-        code_hist = [
+        code_hist    = [
             h for h in st.session_state.get("code_history", [])
             if fp.name in h.get("prompt", "") or fp.name in str(h.get("files", []))
         ]
 
-        if not file_entries and not code_hist:
-            st.info("이 파일에 대한 작업 기록이 없습니다.")
-        else:
-            _LOG_STYLE = {
-                "uploaded": ("#ede9fe", "#5b21b6", "업로드"),
-                "processed": ("#d1fae5", "#065f46", "처리"),
-                "analyzed":  ("#dbeafe", "#1e40af", "분석"),
-                "executed":  ("#d1fae5", "#065f46", "실행"),
-                "merged":    ("#d1fae5", "#065f46", "통합"),
-                "saved":     ("#fef3c7", "#92400e", "저장"),
-                "deleted":   ("#f3f4f6", "#374151", "삭제"),
-                "error":     ("#fee2e2", "#991b1b", "오류"),
-            }
-
-            if file_entries:
-                st.caption(f"총 {len(file_entries)}건의 기록")
+        if file_entries or code_hist:
+            with st.expander(f"작업 로그 ({len(file_entries)}건)"):
+                _LOG_STYLE = {
+                    "uploaded":  ("#ede9fe", "#5b21b6", "업로드"),
+                    "processed": ("#d1fae5", "#065f46", "처리"),
+                    "analyzed":  ("#dbeafe", "#1e40af", "분석"),
+                    "executed":  ("#d1fae5", "#065f46", "실행"),
+                    "merged":    ("#d1fae5", "#065f46", "통합"),
+                    "saved":     ("#fef3c7", "#92400e", "저장"),
+                    "deleted":   ("#f3f4f6", "#374151", "삭제"),
+                    "error":     ("#fee2e2", "#991b1b", "오류"),
+                }
                 for entry in file_entries:
                     action = entry.get("action", "")
                     status = entry.get("status", "")
                     ts_str = entry.get("timestamp", "")
                     detail = entry.get("detail", "")
                     bg, fg, label = _LOG_STYLE.get(status, ("#f3f4f6", "#374151", status))
-
                     try:
                         age  = datetime.now() - datetime.fromisoformat(ts_str)
                         secs = age.total_seconds()
@@ -605,7 +596,6 @@ def preview_dialog(fp_str: str):
                         )
                     except Exception:
                         time_str = ts_str[:16] if ts_str else ""
-
                     st.markdown(
                         f'<div style="display:flex;align-items:center;gap:10px;'
                         f'padding:8px 12px;border:1px solid #e2e8f0;border-radius:8px;'
@@ -619,20 +609,19 @@ def preview_dialog(fp_str: str):
                     )
                     if detail:
                         st.caption(f"  └ {detail}")
-
-            if code_hist:
-                if file_entries:
-                    st.divider()
-                st.markdown("**AI Prompt 처리 이력**")
-                for h in code_hist[:10]:
-                    prompt_preview = h.get("prompt", "")[:100]
-                    st.markdown(
-                        f'<div style="padding:7px 12px;border-left:3px solid #60a5fa;'
-                        f'margin-bottom:5px;font-size:12px;color:#374151">'
-                        f'{prompt_preview}{"…" if len(h.get("prompt",""))>100 else ""}'
-                        f'</div>',
-                        unsafe_allow_html=True,
-                    )
+                if code_hist:
+                    if file_entries:
+                        st.divider()
+                    st.markdown("**AI Prompt 처리 이력**")
+                    for h in code_hist[:10]:
+                        prompt_preview = h.get("prompt", "")[:100]
+                        st.markdown(
+                            f'<div style="padding:7px 12px;border-left:3px solid #60a5fa;'
+                            f'margin-bottom:5px;font-size:12px;color:#374151">'
+                            f'{prompt_preview}{"…" if len(h.get("prompt",""))>100 else ""}'
+                            f'</div>',
+                            unsafe_allow_html=True,
+                        )
 
 
 # ══════════════════════════════════════════════
@@ -702,7 +691,7 @@ st.markdown(
 selected: list[Path] = []
 
 # ── 컬럼 헤더 (파일 행과 동일 비율) ──
-_COL = [0.25, 3.5, 1.8, 1.8, 0.55, 0.55, 0.5]
+_COL = [0.22, 4.5, 1.8, 1.8, 0.6, 0.4]
 _HL  = "font-size:11px;color:#94a3b8;font-weight:600;letter-spacing:.04em"
 hc, hn, hm, ht, *_ = st.columns(_COL)
 hn.markdown(f'<span style="{_HL}">파일명</span>', unsafe_allow_html=True)
@@ -728,20 +717,19 @@ for i, fp in enumerate(files):
     sheet_lbl = f"{n_sheets}시트" if n_sheets > 1 else (sheets[0][:10] if sheets else "—")
     dim_lbl   = f"{meta['rows']:,}행 · {meta['cols']}열" if meta["rows"] else "—"
 
-    # 체크 | 이름 | 크기·날짜 | 시트·행열 | 다운 | 미리보기 | 삭제
-    cc, cn, cm, ct, cdl, cpv, cdel = st.columns(_COL)
+    # 체크 | 이름(클릭→미리보기) | 크기·날짜 | 시트·행열 | 다운 | 삭제
+    cc, cn, cm, ct, cdl, cdel = st.columns(_COL)
 
     chk = cc.checkbox("선택", key=f"chk_{i}", label_visibility="collapsed")
     if chk:
         selected.append(fp)
 
-    cn.markdown(
-        f"<div style='display:flex;align-items:center;gap:8px'>"
-        f"<span style='font-size:16px'>{icon}</span>"
-        f"<span style='font-weight:500;font-size:13px'>{fp.name}</span>"
-        f"</div>",
-        unsafe_allow_html=True,
-    )
+    cn.markdown('<span class="fname-zone" style="display:none"></span>', unsafe_allow_html=True)
+    if cn.button(f"{icon}  {fp.name}", key=f"fname_{i}", use_container_width=True,
+                 help="클릭하면 미리보기"):
+        st.session_state["preview_trigger"] = str(fp)
+        st.rerun()
+
     cm.markdown(
         f"<span style='font-size:12px;color:#94a3b8'>{size_str} · {date_str}</span>",
         unsafe_allow_html=True,
@@ -752,19 +740,13 @@ for i, fp in enumerate(files):
     )
 
     cdl.download_button(
-        "저장", data=read_file_bytes(str(fp)),
+        "⬇", data=read_file_bytes(str(fp)),
         file_name=fp.name, key=f"dl_{i}",
         use_container_width=True, help="원본 파일 다운로드",
     )
 
-    cpv.markdown('<span class="pv-zone" style="display:none"></span>', unsafe_allow_html=True)
-    if cpv.button("보기", key=f"pv_{i}", use_container_width=True, help="미리보기"):
-        st.session_state["preview_trigger"] = str(fp)
-        st.rerun()
-
-    # 삭제 버튼 — 빨간 스타일 마커
     cdel.markdown('<span class="del-zone" style="display:none"></span>', unsafe_allow_html=True)
-    if cdel.button("삭제", key=f"del_{i}", use_container_width=True):
+    if cdel.button("🗑", key=f"del_{i}", use_container_width=True):
         st.session_state["delete_trigger"] = [str(fp)]
         st.rerun()
 
@@ -786,42 +768,44 @@ st.markdown(
 if not selected:
     st.stop()
 
-st.markdown("<br>", unsafe_allow_html=True)
+_names_preview = " · ".join(f.name[:22] for f in selected[:3])
+if len(selected) > 3:
+    _names_preview += f"  外 {len(selected)-3}개"
+
 st.markdown(
-    f'<div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:10px;'
-    f'padding:10px 16px;display:flex;align-items:center;gap:10px">'
-    f'<span style="font-weight:600;color:#1e40af;font-size:13px">✓ {len(selected)}개 선택됨</span>'
-    f'<span style="color:#64748b;font-size:12px">'
-    f'{" · ".join(f.name for f in selected[:3])}'
-    f'{"  外…" if len(selected) > 3 else ""}</span>'
+    f'<div style="background:#1e293b;color:white;border-radius:12px;'
+    f'padding:14px 20px;display:flex;align-items:center;gap:14px;'
+    f'box-shadow:0 4px 20px rgba(0,0,0,0.2);margin:24px 0 10px">'
+    f'<span style="font-size:18px">✓</span>'
+    f'<span style="font-weight:700;font-size:14px">{len(selected)}개 선택됨</span>'
+    f'<span style="color:#94a3b8;font-size:12px;flex:1">{_names_preview}</span>'
     f'</div>',
     unsafe_allow_html=True,
 )
-st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
 
-a1, a2, a3 = st.columns(3)
+_a1, _a2, _a3 = st.columns([2, 1.3, 1])
 
-with a1:
-    if st.button("AI Prompt로 열기", type="primary", use_container_width=True):
+with _a1:
+    if st.button("Workspace에서 열기", type="primary", use_container_width=True):
         st.session_state["ai_prompt_preselect"] = [f.name for f in selected]
         st.switch_page("pages/2_AI_Prompt.py")
 
-with a2:
-    buf = io.BytesIO()
-    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
-        for fp in selected:
-            zf.write(fp, fp.name)
-    buf.seek(0)
-    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+with _a2:
+    _buf = io.BytesIO()
+    with zipfile.ZipFile(_buf, "w", zipfile.ZIP_DEFLATED) as _zf:
+        for _sfp in selected:
+            _zf.write(_sfp, _sfp.name)
+    _buf.seek(0)
+    _ts = datetime.now().strftime("%Y%m%d_%H%M%S")
     st.download_button(
-        "ZIP 다운로드",
-        data=buf.read(),
-        file_name=f"files_{ts}.zip",
+        "⬇ ZIP 다운로드",
+        data=_buf.read(),
+        file_name=f"files_{_ts}.zip",
         mime="application/zip",
         use_container_width=True,
     )
 
-with a3:
-    if st.button(f"🗑 선택 삭제 ({len(selected)}개)", use_container_width=True):
+with _a3:
+    if st.button(f"🗑 삭제 ({len(selected)})", use_container_width=True):
         st.session_state["delete_trigger"] = [str(fp) for fp in selected]
         st.rerun()
